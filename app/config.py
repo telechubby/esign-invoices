@@ -31,6 +31,9 @@ class AppConfig:
     pkcs11_driver_path: str = ""
     pkcs11_slot: str = ""  # blank = auto-detect
     pkcs11_cert_label: str = ""  # blank = first certificate on the slot
+    pkcs11_cert_id: str = ""  # hex CKA_ID of the certificate; preferred over the
+    # label for locating the matching private key (some tokens, e.g.
+    # Gemalto/SafeNet, give the private key a different label than its cert)
 
     pkcs12_path: str = ""  # only used when signing_mode == "pkcs12", for trying the
     # app out before the real token is available - never use for real invoices.

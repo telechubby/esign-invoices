@@ -42,6 +42,7 @@ class SignBatchWorker(QThread):
         pin: str | None = None,
         slot_no: int | None = None,
         cert_label: str | None = None,
+        cert_id: str | None = None,
         pkcs12_path: Path | None = None,
         pkcs12_password: str | None = None,
         parent=None,
@@ -56,6 +57,7 @@ class SignBatchWorker(QThread):
         self.pin = pin
         self.slot_no = slot_no
         self.cert_label = cert_label
+        self.cert_id = cert_id
         self.pkcs12_path = pkcs12_path
         self.pkcs12_password = pkcs12_password
         self._cancel_event = threading.Event()
@@ -81,7 +83,11 @@ class SignBatchWorker(QThread):
                 report = self._run_sign(signer)
             else:
                 with pkcs11_signing_session(
-                    self.driver_path, self.pin, cert_label=self.cert_label, slot_no=self.slot_no
+                    self.driver_path,
+                    self.pin,
+                    cert_label=self.cert_label,
+                    cert_id=self.cert_id,
+                    slot_no=self.slot_no,
                 ) as signer:
                     report = self._run_sign(signer)
             self.finished_batch.emit(report)

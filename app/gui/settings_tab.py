@@ -122,7 +122,7 @@ class SettingsTab(QWidget):
         )
 
         self.token_combo = QComboBox()
-        self._set_token_combo_placeholder(config.pkcs11_slot, config.pkcs11_cert_label)
+        self._set_token_combo_placeholder(config.pkcs11_slot, config.pkcs11_cert_label, config.pkcs11_cert_id)
         token_form.addRow(S.SET_TOKEN_SELECT, self.token_combo)
         scan_tokens_btn = QPushButton(S.SET_TOKEN_SCAN)
         scan_tokens_btn.clicked.connect(self._scan_tokens)
@@ -261,13 +261,13 @@ class SettingsTab(QWidget):
         extracted = pattern.extract_id(EXAMPLE_FILENAME) or "?"
         self.example_label.setText(S.SET_FILENAME_EXAMPLE.format(example=EXAMPLE_FILENAME, extracted=extracted))
 
-    def _set_token_combo_placeholder(self, slot: str, cert_label: str) -> None:
+    def _set_token_combo_placeholder(self, slot: str, cert_label: str, cert_id: str = "") -> None:
         self.token_combo.clear()
-        self.token_combo.addItem(S.SET_TOKEN_AUTO, userData=(None, ""))
+        self.token_combo.addItem(S.SET_TOKEN_AUTO, userData=(None, "", ""))
         if slot.strip():
             slot_no = int(slot) if slot.strip().isdigit() else None
             label = f"Слот {slot}" + (f" — {cert_label}" if cert_label else "")
-            self.token_combo.addItem(label, userData=(slot_no, cert_label))
+            self.token_combo.addItem(label, userData=(slot_no, cert_label, cert_id))
             self.token_combo.setCurrentIndex(1)
 
     def _scan_tokens(self) -> None:
@@ -282,13 +282,15 @@ class SettingsTab(QWidget):
             return
 
         self.token_combo.clear()
-        self.token_combo.addItem(S.SET_TOKEN_AUTO, userData=(None, ""))
+        self.token_combo.addItem(S.SET_TOKEN_AUTO, userData=(None, "", ""))
         if not tokens:
             QMessageBox.information(self, S.SET_TOKEN_SCAN, S.SET_TOKEN_NONE_FOUND)
             return
         for info in tokens:
-            cert_label = info.cert_labels[0] if len(info.cert_labels) == 1 else ""
-            self.token_combo.addItem(info.display_name, userData=(info.slot_id, cert_label))
+            has_one = len(info.cert_labels) == 1
+            cert_label = info.cert_labels[0] if has_one else ""
+            cert_id = info.cert_ids[0] if has_one else ""
+            self.token_combo.addItem(info.display_name, userData=(info.slot_id, cert_label, cert_id))
         self.token_combo.setCurrentIndex(1)
 
     def _save(self) -> None:
@@ -298,9 +300,10 @@ class SettingsTab(QWidget):
         self.config.filename_id_position = self.id_position_spin.value()
         self.config.signing_mode = self.mode_combo.currentData()
         self.config.pkcs11_driver_path = self.driver_edit.text().strip()
-        slot_no, cert_label = self.token_combo.currentData() or (None, "")
+        slot_no, cert_label, cert_id = self.token_combo.currentData() or (None, "", "")
         self.config.pkcs11_slot = str(slot_no) if slot_no is not None else ""
         self.config.pkcs11_cert_label = cert_label
+        self.config.pkcs11_cert_id = cert_id
         self.config.pkcs12_path = self.pkcs12_path_edit.text().strip()
         self.config.gmail_address = self.gmail_edit.text().strip()
         self.config.email_subject = self.subject_edit.text()

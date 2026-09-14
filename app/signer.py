@@ -14,8 +14,9 @@ from __future__ import annotations
 import os
 import sys
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+from itertools import zip_longest
 from pathlib import Path
 from typing import Iterator
 
@@ -302,6 +303,7 @@ def pkcs11_signing_session(
     driver_path: Path,
     pin: str,
     cert_label: str | None = None,
+    cert_id: str | None = None,
     slot_no: int | None = None,
 ) -> Iterator[Signer]:
     """Open one PKCS#11 session covering an entire signing batch.
@@ -310,10 +312,20 @@ def pkcs11_signing_session(
         with pkcs11_signing_session(driver, pin) as signer:
             for pdf in invoices:
                 sign_pdf(pdf, out, signer)
+
+    ``cert_id`` (the certificate's CKA_ID, as hex) is preferred over
+    ``cert_label`` for locating the matching private key: pyHanko falls
+    back to searching for a private key whose CKA_LABEL equals the
+    certificate's label when no ID is given, but on many tokens (e.g.
+    Gemalto/SafeNet IDPrime) the private key object has a different
+    label than its certificate - only the CKA_ID matches between the
+    two. Without it, signing fails with "Could not find private key
+    with label ...".
     """
     config = PKCS11SignatureConfig(
         module_path=str(driver_path),
         cert_label=cert_label,
+        cert_id=bytes.fromhex(cert_id) if cert_id else None,
         slot_no=slot_no,
     )
     try:
@@ -334,12 +346,17 @@ class TokenSlotInfo:
     slot_id: int
     token_label: str
     cert_labels: list[str]
+    cert_ids: list[str] = field(default_factory=list)  # hex CKA_ID, paired by index with cert_labels
 
     @property
     def display_name(self) -> str:
         label = self.token_label or f"Слот {self.slot_id}"
-        if self.cert_labels:
-            return f"{label} — {', '.join(self.cert_labels)}"
+        names = [
+            cert_label or f"ID {cert_id}"
+            for cert_label, cert_id in zip_longest(self.cert_labels, self.cert_ids, fillvalue="")
+        ]
+        if names:
+            return f"{label} — {', '.join(names)}"
         return label
 
 
@@ -354,6 +371,7 @@ def list_pkcs11_tokens(driver_path: Path) -> list[TokenSlotInfo]:
     for slot in lib.get_slots(token_present=True):
         token = slot.get_token()
         cert_labels: list[str] = []
+        cert_ids: list[str] = []
         try:
             with token.open() as session:
                 for obj in session.get_objects(
@@ -363,11 +381,22 @@ def list_pkcs11_tokens(driver_path: Path) -> list[TokenSlotInfo]:
                         label = obj[pkcs11_lib.Attribute.LABEL]
                     except Exception:
                         label = None
-                    if label:
-                        cert_labels.append(label)
+                    try:
+                        cert_id = obj[pkcs11_lib.Attribute.ID]
+                    except Exception:
+                        cert_id = None
+                    if not label and not cert_id:
+                        continue
+                    cert_labels.append(label or "")
+                    cert_ids.append(cert_id.hex() if cert_id else "")
         except Exception:
             pass
         results.append(
-            TokenSlotInfo(slot_id=slot.slot_id, token_label=(token.label or "").strip(), cert_labels=cert_labels)
+            TokenSlotInfo(
+                slot_id=slot.slot_id,
+                token_label=(token.label or "").strip(),
+                cert_labels=cert_labels,
+                cert_ids=cert_ids,
+            )
         )
     return results

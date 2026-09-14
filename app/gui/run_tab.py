@@ -204,6 +204,7 @@ class RunTab(QWidget):
                 pin=pin,
                 slot_no=slot_no,
                 cert_label=self.config.pkcs11_cert_label or None,
+                cert_id=self.config.pkcs11_cert_id or None,
             )
 
         self.worker.job_updated.connect(self._on_job_updated)
