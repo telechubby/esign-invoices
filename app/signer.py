@@ -314,18 +314,24 @@ def pkcs11_signing_session(
                 sign_pdf(pdf, out, signer)
 
     ``cert_id`` (the certificate's CKA_ID, as hex) is preferred over
-    ``cert_label`` for locating the matching private key: pyHanko falls
-    back to searching for a private key whose CKA_LABEL equals the
-    certificate's label when no ID is given, but on many tokens (e.g.
-    Gemalto/SafeNet IDPrime) the private key object has a different
-    label than its certificate - only the CKA_ID matches between the
-    two. Without it, signing fails with "Could not find private key
-    with label ...".
+    ``cert_label`` for locating the matching private key: on many tokens
+    (e.g. Gemalto/SafeNet IDPrime) the private key object has a
+    different label than its certificate - only the CKA_ID matches
+    between the two. It must be passed as both ``cert_id`` *and*
+    ``key_id`` here: pyHanko's PKCS11Signer only drops its
+    label-based key lookup when the raw ``key_id`` argument itself is
+    set - passing ``cert_id`` alone still makes it fall back to
+    searching for a private key whose CKA_LABEL equals the
+    certificate's label (combined with the ID, as an AND match), which
+    fails whenever that label doesn't match. Without either, signing
+    fails with "Could not find private key with label ...".
     """
+    key_id_bytes = bytes.fromhex(cert_id) if cert_id else None
     config = PKCS11SignatureConfig(
         module_path=str(driver_path),
         cert_label=cert_label,
-        cert_id=bytes.fromhex(cert_id) if cert_id else None,
+        cert_id=key_id_bytes,
+        key_id=key_id_bytes,
         slot_no=slot_no,
     )
     try:
