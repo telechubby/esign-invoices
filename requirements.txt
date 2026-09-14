@@ -1,0 +1,6 @@
+pyside6>=6.7
+pyhanko>=0.25
+python-pkcs11>=0.7
+cryptography>=42
+keyring>=25
+pyinstaller>=6.10
