@@ -11,17 +11,56 @@ Two signer sources are supported behind the same signing call:
 """
 from __future__ import annotations
 
+import os
+import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 
+from pyhanko.pdf_utils.font.opentype import GlyphAccumulatorFactory
+from pyhanko.pdf_utils.images import PdfImage
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
+from pyhanko.pdf_utils.layout import AxisAlignment, Margins, SimpleBoxLayoutRule
+from pyhanko.pdf_utils.text import TextBoxStyle
 from pyhanko.sign import PdfSignatureMetadata, signers
 from pyhanko.sign.fields import SigFieldSpec, SigSeedSubFilter
 from pyhanko.sign.pkcs11 import PKCS11SignatureConfig, PKCS11SigningContext
 from pyhanko.sign.signers.pdf_cms import Signer
 from pyhanko.stamp import TextStampStyle
+
+DEFAULT_STAMP_TEXT = "%(signer)s\nДигитално потпишано\n%(ts)s"
+
+# pyHanko's default stamp font is a base-14 PDF font (Latin-1 only), which
+# silently garbles Cyrillic text. Rather than bundle a font (and its
+# licensing questions), we point at a Cyrillic-capable font already
+# installed on the machine - Windows and macOS both ship one by default.
+if sys.platform == "win32":
+    _windir = os.environ.get("WINDIR", r"C:\Windows")
+    _FONT_CANDIDATES = [
+        rf"{_windir}\Fonts\tahoma.ttf",
+        rf"{_windir}\Fonts\arial.ttf",
+        rf"{_windir}\Fonts\calibri.ttf",
+    ]
+elif sys.platform == "darwin":
+    _FONT_CANDIDATES = [
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/System/Library/Fonts/Supplemental/Tahoma.ttf",
+        "/Library/Fonts/Arial Unicode.ttf",
+    ]
+else:
+    _FONT_CANDIDATES = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    ]
+
+
+def find_stamp_font() -> Path | None:
+    for candidate in _FONT_CANDIDATES:
+        p = Path(candidate)
+        if p.exists():
+            return p
+    return None
 
 
 class SigningError(Exception):
@@ -39,10 +78,18 @@ class SignatureOptions:
     # from the BOTTOM of the page). Percentages are used rather than
     # absolute points because they work regardless of the actual page
     # size, which can vary between invoices.
-    x_pct: float = 65.0
-    y_pct: float = 5.0
-    width_pct: float = 30.0
-    height_pct: float = 12.0
+    x_pct: float = 5.0
+    y_pct: float = 3.0
+    width_pct: float = 60.0
+    height_pct: float = 14.0
+
+    # Appearance: the stamp text template (supports %(signer)s and %(ts)s,
+    # same convention pyHanko itself uses) and an optional background
+    # watermark image shown faintly behind the text - e.g. a company logo
+    # or a signature graphic, like Adobe's own default appearance does.
+    stamp_text: str = DEFAULT_STAMP_TEXT
+    background_image_path: str = ""
+    background_opacity: float = 0.6
 
 
 def compute_signature_box(
@@ -92,10 +139,31 @@ def sign_pdf(
                 subfilter=SigSeedSubFilter.PADES,
                 md_algorithm="sha256",
             )
+            background = PdfImage(options.background_image_path) if options.background_image_path else None
+            font_path = find_stamp_font()
+            # SHRINK_TO_FIT (the default scaling mode) auto-shrinks the text
+            # to fit the box instead of silently clipping it - important
+            # since the box size/position and the stamp text are both
+            # user-configurable, so nothing guarantees they'll always fit
+            # at a fixed font size.
+            layout_rule = SimpleBoxLayoutRule(
+                x_align=AxisAlignment.ALIGN_MIN,
+                y_align=AxisAlignment.ALIGN_MID,
+                margins=Margins(left=6, right=6, top=4, bottom=4),
+            )
+            text_box_style = TextBoxStyle(
+                box_layout_rule=layout_rule,
+                **({"font": GlyphAccumulatorFactory(str(font_path))} if font_path else {}),
+            )
             pdf_signer = signers.PdfSigner(
                 meta,
                 signer=signer,
-                stamp_style=TextStampStyle(background=None),
+                stamp_style=TextStampStyle(
+                    stamp_text=options.stamp_text,
+                    background=background,
+                    background_opacity=options.background_opacity,
+                    text_box_style=text_box_style,
+                ),
                 new_field_spec=SigFieldSpec(options.field_name, on_page=0, box=box),
             )
 

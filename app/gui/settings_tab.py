@@ -173,6 +173,27 @@ class SettingsTab(QWidget):
         sig_grid.addWidget(self.sig_height_spin, 3, 1)
         appearance_row.addLayout(sig_grid)
         appearance_layout.addLayout(appearance_row)
+
+        appearance_form = QFormLayout()
+        self.sig_text_edit = QTextEdit()
+        self.sig_text_edit.setPlainText(config.sig_stamp_text)
+        self.sig_text_edit.setFixedHeight(70)
+        appearance_form.addRow(S.SET_SIG_TEXT, self.sig_text_edit)
+        text_hint = QLabel(S.SET_SIG_TEXT_HINT)
+        text_hint.setWordWrap(True)
+        appearance_form.addRow("", text_hint)
+
+        self.sig_background_edit = QLineEdit(config.sig_background_image)
+        bg_row = _browse_row(self.sig_background_edit, is_dir=False, file_filter="Слики (*.png *.jpg *.jpeg)")
+        clear_bg_btn = QPushButton(S.SET_SIG_BACKGROUND_CLEAR)
+        clear_bg_btn.clicked.connect(lambda: self.sig_background_edit.clear())
+        bg_row.addWidget(clear_bg_btn)
+        appearance_form.addRow(S.SET_SIG_BACKGROUND, _wrap(bg_row))
+
+        self.sig_opacity_spin = _pct_spin(config.sig_background_opacity * 100)
+        appearance_form.addRow(S.SET_SIG_BACKGROUND_OPACITY, self.sig_opacity_spin)
+
+        appearance_layout.addLayout(appearance_form)
         outer.addWidget(appearance_group)
 
         self.sig_picker.changed.connect(self._on_picker_changed)
@@ -186,7 +207,8 @@ class SettingsTab(QWidget):
         self.app_password_edit = QLineEdit(get_gmail_app_password(config.gmail_address) or "")
         self.app_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.subject_edit = QLineEdit(config.email_subject)
-        self.body_edit = QTextEdit(config.email_body)
+        self.body_edit = QTextEdit()
+        self.body_edit.setPlainText(config.email_body)
         self.body_edit.setFixedHeight(100)
         hint = QLabel(S.SET_EMAIL_PLACEHOLDERS_HINT)
         email_form.addRow(S.SET_EMAIL_ADDRESS, self.gmail_edit)
@@ -267,6 +289,9 @@ class SettingsTab(QWidget):
         self.config.sig_y_pct = self.sig_y_spin.value()
         self.config.sig_width_pct = self.sig_width_spin.value()
         self.config.sig_height_pct = self.sig_height_spin.value()
+        self.config.sig_stamp_text = self.sig_text_edit.toPlainText()
+        self.config.sig_background_image = self.sig_background_edit.text().strip()
+        self.config.sig_background_opacity = self.sig_opacity_spin.value() / 100
 
         save_config(self.config)
         if self.config.gmail_address and self.app_password_edit.text():

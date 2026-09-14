@@ -164,6 +164,9 @@ class RunTab(QWidget):
             y_pct=self.config.sig_y_pct,
             width_pct=self.config.sig_width_pct,
             height_pct=self.config.sig_height_pct,
+            stamp_text=self.config.sig_stamp_text,
+            background_image_path=self.config.sig_background_image,
+            background_opacity=self.config.sig_background_opacity,
         )
         self._tracked_job_ids = {id(j) for j in pending}
         self._begin_progress(len(pending))

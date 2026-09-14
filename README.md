@@ -14,12 +14,25 @@ Windows and macOS (same codebase).
    listed separately before you commit the import.
 2. **Поставки (Settings)** tab: folders, the invoice filename pattern (which
    part of the filename is the customer ID), the USB token's PKCS#11 driver
-   path, the Gmail sending address/App Password, and where the visible
-   signature stamp goes on the first page - drag the box on the mini page
-   preview (or type exact percentages), since where there's free space
-   varies by invoice template. Every signed invoice shows this stamp
-   (signer name + timestamp) on page 1, not just an invisible cryptographic
-   signature.
+   path, the Gmail sending address/App Password, and the visible signature
+   stamp's appearance:
+   - **Position/size**: drag the box on the mini page preview (or type exact
+     percentages), since where there's free space varies by invoice
+     template. Keep the box reasonably wide - a very narrow box can force
+     the stamp text to shrink more than you'd like.
+   - **Text**: the stamp's wording, editable with `%(signer)s` and `%(ts)s`
+     placeholders (press Enter for a new line).
+   - **Background watermark image** (optional): a logo or seal-style image
+     shown faintly behind the stamp text, with adjustable opacity - similar
+     to Adobe's own default signature appearance.
+
+   Every signed invoice shows this stamp on page 1, not just an invisible
+   cryptographic signature. Cyrillic text in the stamp requires a
+   Cyrillic-capable font already on the machine (Tahoma/Arial, which both
+   Windows and macOS ship by default) - `app/signer.py`'s `find_stamp_font()`
+   locates one automatically; if none is found, Cyrillic text would render
+   incorrectly (garbled), though this shouldn't happen on a normal
+   Windows or macOS install.
 3. **Потпишување и испраќање (Run)** tab: scans the unsigned-invoices
    folder and matches each file to a customer. Signing and sending are two
    separate, independent steps - not one combined action:

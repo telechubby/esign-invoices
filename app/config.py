@@ -47,12 +47,19 @@ class AppConfig:
 
     # Visible signature stamp position/size on the first page, as % of
     # page width/height (y measured from the bottom, PDF convention).
-    # Defaults are a modest box in the bottom-right - adjust in Settings
-    # to fit your actual invoice layout.
-    sig_x_pct: float = 70.0
+    # Defaults are a wide box in the bottom-left - adjust in Settings to
+    # fit your actual invoice layout. The box needs to stay reasonably
+    # wide for the stamp text to fit without being cut off.
+    sig_x_pct: float = 5.0
     sig_y_pct: float = 3.0
-    sig_width_pct: float = 25.0
-    sig_height_pct: float = 8.0
+    sig_width_pct: float = 60.0
+    sig_height_pct: float = 14.0
+
+    # Stamp appearance: the text template (supports %(signer)s and %(ts)s)
+    # and an optional background watermark image shown faintly behind it.
+    sig_stamp_text: str = "%(signer)s\nДигитално потпишано\n%(ts)s"
+    sig_background_image: str = ""
+    sig_background_opacity: float = 0.35
 
     def to_json_dict(self) -> dict:
         return asdict(self)

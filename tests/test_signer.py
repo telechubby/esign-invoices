@@ -1,4 +1,16 @@
-from app.signer import SignatureOptions, compute_signature_box
+from pathlib import Path
+
+from app.signer import DEFAULT_STAMP_TEXT, SignatureOptions, compute_signature_box, find_stamp_font
+
+
+def test_default_stamp_text_has_signer_and_timestamp_placeholders():
+    assert "%(signer)s" in DEFAULT_STAMP_TEXT
+    assert "%(ts)s" in DEFAULT_STAMP_TEXT
+
+
+def test_find_stamp_font_returns_existing_path_or_none():
+    result = find_stamp_font()
+    assert result is None or (isinstance(result, Path) and result.exists())
 
 
 def test_compute_signature_box_basic():
