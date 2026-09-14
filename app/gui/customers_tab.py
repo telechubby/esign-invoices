@@ -37,7 +37,7 @@ class CustomersTab(QWidget):
             [S.CUST_TABLE_ID, S.CUST_TABLE_NAME, S.CUST_TABLE_EMAIL, S.CUST_TABLE_UPDATED]
         )
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.doubleClicked.connect(self._edit_selected)
@@ -48,11 +48,13 @@ class CustomersTab(QWidget):
         add_btn.clicked.connect(self._add)
         edit_btn = QPushButton(S.CUST_EDIT)
         edit_btn.clicked.connect(self._edit_selected)
+        select_all_btn = QPushButton(S.CUST_SELECT_ALL)
+        select_all_btn.clicked.connect(self.table.selectAll)
         delete_btn = QPushButton(S.CUST_DELETE)
         delete_btn.clicked.connect(self._delete_selected)
         import_btn = QPushButton(S.CUST_IMPORT_CSV)
         import_btn.clicked.connect(self._import_csv)
-        for b in (add_btn, edit_btn, delete_btn, import_btn):
+        for b in (add_btn, edit_btn, select_all_btn, delete_btn, import_btn):
             btn_row.addWidget(b)
         layout.addLayout(btn_row)
 
@@ -86,6 +88,15 @@ class CustomersTab(QWidget):
         item = self.table.item(row, 0)
         return item.text() if item else None
 
+    def _selected_ids(self) -> list[str]:
+        rows = sorted({index.row() for index in self.table.selectedIndexes()})
+        ids = []
+        for row in rows:
+            item = self.table.item(row, 0)
+            if item:
+                ids.append(item.text())
+        return ids
+
     def _add(self) -> None:
         dialog = CustomerDialog(self)
         if dialog.exec():
@@ -107,16 +118,17 @@ class CustomersTab(QWidget):
                 self.refresh()
 
     def _delete_selected(self) -> None:
-        cid = self._selected_id()
-        if not cid:
+        ids = self._selected_ids()
+        if not ids:
             return
-        answer = QMessageBox.question(
-            self,
-            S.CUST_CONFIRM_DELETE_TITLE,
-            S.CUST_CONFIRM_DELETE_MSG.format(id=cid),
-        )
+        if len(ids) == 1:
+            message = S.CUST_CONFIRM_DELETE_MSG.format(id=ids[0])
+        else:
+            message = S.CUST_CONFIRM_DELETE_BULK_MSG.format(count=len(ids))
+        answer = QMessageBox.question(self, S.CUST_CONFIRM_DELETE_TITLE, message)
         if answer == QMessageBox.StandardButton.Yes:
-            self.store.delete(cid)
+            for cid in ids:
+                self.store.delete(cid)
             self.refresh()
 
     def _import_csv(self) -> None:

@@ -17,8 +17,10 @@ CUST_EDIT = "Измени"
 CUST_DELETE = "Избриши"
 CUST_IMPORT_CSV = "Увези од CSV"
 CUST_SEARCH_PLACEHOLDER = "Пребарај по ID, назив или е-пошта..."
+CUST_SELECT_ALL = "Избери ги сите"
 CUST_CONFIRM_DELETE_TITLE = "Потврда за бришење"
 CUST_CONFIRM_DELETE_MSG = "Дали сте сигурни дека сакате да го избришете клиентот {id}?"
+CUST_CONFIRM_DELETE_BULK_MSG = "Дали сте сигурни дека сакате да избришете {count} клиенти?"
 
 # CSV import dialog
 IMPORT_TITLE = "Увоз на клиенти од CSV"
