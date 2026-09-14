@@ -15,14 +15,15 @@ import os
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Iterator
 
-from pyhanko.pdf_utils.font.opentype import GlyphAccumulatorFactory
+import tzlocal
+from PIL import Image, ImageDraw, ImageFont
 from pyhanko.pdf_utils.images import PdfImage
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
-from pyhanko.pdf_utils.layout import AxisAlignment, Margins, SimpleBoxLayoutRule
-from pyhanko.pdf_utils.text import TextBoxStyle
+from pyhanko.pdf_utils.layout import AxisAlignment, InnerScaling, Margins, SimpleBoxLayoutRule
 from pyhanko.sign import PdfSignatureMetadata, signers
 from pyhanko.sign.fields import SigFieldSpec, SigSeedSubFilter
 from pyhanko.sign.pkcs11 import PKCS11SignatureConfig, PKCS11SigningContext
@@ -30,6 +31,7 @@ from pyhanko.sign.signers.pdf_cms import Signer
 from pyhanko.stamp import TextStampStyle
 
 DEFAULT_STAMP_TEXT = "%(signer)s\nДигитално потпишано\n%(ts)s"
+DEFAULT_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S %Z"  # matches pyHanko's own default
 
 # pyHanko's default stamp font is a base-14 PDF font (Latin-1 only), which
 # silently garbles Cyrillic text. Rather than bundle a font (and its
@@ -106,6 +108,106 @@ def compute_signature_box(
     return x1, y1, x2, y2
 
 
+def _load_measuring_font(font_path: Path | None, size: int) -> ImageFont.FreeTypeFont:
+    if font_path is not None:
+        try:
+            return ImageFont.truetype(str(font_path), size=size)
+        except OSError:
+            pass
+    return ImageFont.load_default(size=size)
+
+
+def _wrap_text_block(text: str, font: ImageFont.FreeTypeFont, max_width: float) -> list[str]:
+    """Word-wraps each '\\n'-separated paragraph in `text` so no line
+    exceeds `max_width` (in the same units as font.getlength - points, for
+    a font loaded at a point size)."""
+    lines: list[str] = []
+    for paragraph in text.split("\n"):
+        if not paragraph:
+            lines.append("")
+            continue
+        words = paragraph.split(" ")
+        current = ""
+        for word in words:
+            candidate = f"{current} {word}".strip()
+            if not current or font.getlength(candidate) <= max_width:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        lines.append(current)
+    return lines
+
+
+def render_stamp_image(
+    template: str,
+    signer_name: str,
+    box_width_pt: float,
+    box_height_pt: float,
+    font_path: Path | None,
+    background_image_path: str = "",
+    background_opacity: float = 0.35,
+    max_font_size: int = 13,
+    min_font_size: int = 5,
+    padding_pt: float = 5.0,
+    scale: float = 4.0,
+) -> Image.Image:
+    """Renders the visible signature stamp - substituted/wrapped/auto-sized
+    text, optionally over a background watermark - as a single RGBA image
+    sized to the signature box's exact aspect ratio.
+
+    This is done with PIL rather than pyHanko's own text-box layout: with
+    an embedded OpenType font (needed for Cyrillic), pyHanko's box-fit
+    text layout was found to add erratic extra spacing between glyphs
+    (reproduced identically across two independent PDF renderers, so it's
+    a real content bug, not a viewer quirk) - rendering the finished stamp
+    as one image sidesteps that entirely and gives full, predictable
+    control over wrapping and sizing.
+    """
+    px_w = max(1, round(box_width_pt * scale))
+    px_h = max(1, round(box_height_pt * scale))
+    canvas = Image.new("RGBA", (px_w, px_h), (255, 255, 255, 0))
+
+    if background_image_path:
+        try:
+            bg = Image.open(background_image_path).convert("RGBA")
+            bg = bg.resize((px_w, px_h))
+            alpha = bg.split()[3].point(lambda a: int(a * background_opacity))
+            bg.putalpha(alpha)
+            canvas.alpha_composite(bg)
+        except OSError:
+            pass
+
+    ts = datetime.now(tz=tzlocal.get_localzone()).strftime(DEFAULT_TIMESTAMP_FORMAT)
+    substituted = template % {"signer": signer_name, "ts": ts}
+
+    usable_w = max(10.0, (box_width_pt - 2 * padding_pt) * scale)
+    usable_h = max(10.0, (box_height_pt - 2 * padding_pt) * scale)
+
+    chosen_size = min_font_size
+    chosen_lines: list[str] = [substituted]
+    for size in range(max_font_size, min_font_size - 1, -1):
+        font = _load_measuring_font(font_path, round(size * scale))
+        lines = _wrap_text_block(substituted, font, usable_w)
+        line_height = size * scale * 1.3
+        if len(lines) * line_height <= usable_h:
+            chosen_size, chosen_lines = size, lines
+            break
+    else:
+        font = _load_measuring_font(font_path, round(min_font_size * scale))
+        chosen_lines = _wrap_text_block(substituted, font, usable_w)
+
+    font = _load_measuring_font(font_path, round(chosen_size * scale))
+    line_height = chosen_size * scale * 1.3
+    draw = ImageDraw.Draw(canvas)
+    y = padding_pt * scale
+    for line in chosen_lines:
+        draw.text((padding_pt * scale, y), line, font=font, fill=(0, 0, 0, 255))
+        y += line_height
+
+    return canvas
+
+
 def sign_pdf(
     input_path: Path,
     output_path: Path,
@@ -139,32 +241,36 @@ def sign_pdf(
                 subfilter=SigSeedSubFilter.PADES,
                 md_algorithm="sha256",
             )
-            background = PdfImage(options.background_image_path) if options.background_image_path else None
-            font_path = find_stamp_font()
-            # SHRINK_TO_FIT (the default scaling mode) auto-shrinks the text
-            # to fit the box instead of silently clipping it - important
-            # since the box size/position and the stamp text are both
-            # user-configurable, so nothing guarantees they'll always fit
-            # at a fixed font size.
-            layout_rule = SimpleBoxLayoutRule(
-                x_align=AxisAlignment.ALIGN_MIN,
-                y_align=AxisAlignment.ALIGN_MID,
-                margins=Margins(left=6, right=6, top=4, bottom=4),
+            stamp_image = render_stamp_image(
+                options.stamp_text,
+                signer.subject_name,
+                box_width_pt=box[2] - box[0],
+                box_height_pt=box[3] - box[1],
+                font_path=find_stamp_font(),
+                background_image_path=options.background_image_path,
+                background_opacity=options.background_opacity,
             )
-            text_box_style = TextBoxStyle(
-                box_layout_rule=layout_rule,
-                **({"font": GlyphAccumulatorFactory(str(font_path))} if font_path else {}),
+            # STRETCH_FILL: our rendered image already matches the box's
+            # exact aspect ratio, so this just places it edge-to-edge
+            # inside the stamp's border.
+            background_layout = SimpleBoxLayoutRule(
+                x_align=AxisAlignment.ALIGN_MID,
+                y_align=AxisAlignment.ALIGN_MID,
+                margins=Margins(left=0, right=0, top=0, bottom=0),
+                inner_content_scaling=InnerScaling.STRETCH_FILL,
             )
             pdf_signer = signers.PdfSigner(
                 meta,
                 signer=signer,
                 stamp_style=TextStampStyle(
-                    stamp_text=options.stamp_text,
-                    background=background,
-                    background_opacity=options.background_opacity,
-                    text_box_style=text_box_style,
+                    stamp_text="",
+                    background=PdfImage(stamp_image),
+                    background_opacity=1.0,
+                    background_layout=background_layout,
                 ),
-                new_field_spec=SigFieldSpec(options.field_name, on_page=0, box=box),
+                new_field_spec=SigFieldSpec(
+                    options.field_name, on_page=0, box=tuple(int(round(v)) for v in box)
+                ),
             )
 
             with open(output_path, "wb") as outf:
@@ -219,22 +325,49 @@ def pkcs11_signing_session(
         raise SigningError(f"Грешка при поврзување со USB токенот: {exc}") from exc
 
 
-def list_pkcs11_certificates(driver_path: Path) -> list[str]:
-    """Best-effort listing of certificate labels available on the token,
-    used by the settings screen's "Прикажи сертификати" action. Requires
-    no PIN for most tokens (public objects are readable without login)."""
+@dataclass
+class TokenSlotInfo:
+    """One PKCS#11 slot with a token present, for the Settings screen's
+    token-picker dropdown - lets the user select a slot/certificate by
+    name instead of having to know a raw numeric slot index."""
+
+    slot_id: int
+    token_label: str
+    cert_labels: list[str]
+
+    @property
+    def display_name(self) -> str:
+        label = self.token_label or f"Слот {self.slot_id}"
+        if self.cert_labels:
+            return f"{label} — {', '.join(self.cert_labels)}"
+        return label
+
+
+def list_pkcs11_tokens(driver_path: Path) -> list[TokenSlotInfo]:
+    """Scans the driver for present tokens/slots and their certificates,
+    used by the settings screen's token-picker dropdown. Certificate
+    labels are usually readable without a PIN (public objects)."""
     import pkcs11 as pkcs11_lib
 
     lib = pkcs11_lib.lib(str(driver_path))
-    labels: list[str] = []
+    results: list[TokenSlotInfo] = []
     for slot in lib.get_slots(token_present=True):
         token = slot.get_token()
-        with token.open() as session:
-            for obj in session.get_objects({pkcs11_lib.Attribute.CLASS: pkcs11_lib.ObjectClass.CERTIFICATE}):
-                try:
-                    label = obj[pkcs11_lib.Attribute.LABEL]
-                except Exception:
-                    label = None
-                if label:
-                    labels.append(label)
-    return labels
+        cert_labels: list[str] = []
+        try:
+            with token.open() as session:
+                for obj in session.get_objects(
+                    {pkcs11_lib.Attribute.CLASS: pkcs11_lib.ObjectClass.CERTIFICATE}
+                ):
+                    try:
+                        label = obj[pkcs11_lib.Attribute.LABEL]
+                    except Exception:
+                        label = None
+                    if label:
+                        cert_labels.append(label)
+        except Exception:
+            pass
+        results.append(
+            TokenSlotInfo(slot_id=slot.slot_id, token_label=(token.label or "").strip(), cert_labels=cert_labels)
+        )
+    return results

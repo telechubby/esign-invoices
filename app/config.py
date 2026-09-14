@@ -30,6 +30,7 @@ class AppConfig:
 
     pkcs11_driver_path: str = ""
     pkcs11_slot: str = ""  # blank = auto-detect
+    pkcs11_cert_label: str = ""  # blank = first certificate on the slot
 
     pkcs12_path: str = ""  # only used when signing_mode == "pkcs12", for trying the
     # app out before the real token is available - never use for real invoices.

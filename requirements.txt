@@ -1,6 +1,7 @@
 pyside6>=6.7
-pyhanko[opentype]>=0.25
+pyhanko>=0.25
 Pillow>=10
+tzlocal>=5
 python-pkcs11>=0.7
 cryptography>=42
 keyring>=25

@@ -1,6 +1,27 @@
 from pathlib import Path
 
-from app.signer import DEFAULT_STAMP_TEXT, SignatureOptions, compute_signature_box, find_stamp_font
+from app.signer import (
+    DEFAULT_STAMP_TEXT,
+    SignatureOptions,
+    TokenSlotInfo,
+    compute_signature_box,
+    find_stamp_font,
+)
+
+
+def test_token_slot_display_name_with_label_and_cert():
+    info = TokenSlotInfo(slot_id=0, token_label="My Token", cert_labels=["Ljubomir Kolev"])
+    assert info.display_name == "My Token — Ljubomir Kolev"
+
+
+def test_token_slot_display_name_without_label_falls_back_to_slot_id():
+    info = TokenSlotInfo(slot_id=2, token_label="", cert_labels=[])
+    assert info.display_name == "Слот 2"
+
+
+def test_token_slot_display_name_multiple_certs_joined():
+    info = TokenSlotInfo(slot_id=0, token_label="Token", cert_labels=["Cert A", "Cert B"])
+    assert info.display_name == "Token — Cert A, Cert B"
 
 
 def test_default_stamp_text_has_signer_and_timestamp_placeholders():

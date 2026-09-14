@@ -203,6 +203,7 @@ class RunTab(QWidget):
                 driver_path=Path(self.config.pkcs11_driver_path),
                 pin=pin,
                 slot_no=slot_no,
+                cert_label=self.config.pkcs11_cert_label or None,
             )
 
         self.worker.job_updated.connect(self._on_job_updated)

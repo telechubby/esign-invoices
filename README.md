@@ -13,26 +13,34 @@ Windows and macOS (same codebase).
    existing / use new) instead of silently overwriting; brand-new IDs are
    listed separately before you commit the import.
 2. **Поставки (Settings)** tab: folders, the invoice filename pattern (which
-   part of the filename is the customer ID), the USB token's PKCS#11 driver
-   path, the Gmail sending address/App Password, and the visible signature
-   stamp's appearance:
+   part of the filename is the customer ID), the USB token, the Gmail
+   sending address/App Password, and the visible signature stamp's
+   appearance:
+   - **Token**: pick the PKCS#11 driver file, then **"Скенирај токени"**
+     scans it and fills a dropdown with the tokens/certificates it finds
+     (plug the token in first) - pick one by name instead of typing a raw
+     slot number. "Автоматски" uses whatever the driver returns first.
    - **Position/size**: drag the box on the mini page preview (or type exact
      percentages), since where there's free space varies by invoice
-     template. Keep the box reasonably wide - a very narrow box can force
-     the stamp text to shrink more than you'd like.
+     template.
    - **Text**: the stamp's wording, editable with `%(signer)s` and `%(ts)s`
-     placeholders (press Enter for a new line).
+     placeholders (press Enter for a new line). The font size auto-fits
+     (grows or shrinks) to the box, and long lines word-wrap automatically
+     - both driven by `app/signer.py`'s `render_stamp_image()`.
    - **Background watermark image** (optional): a logo or seal-style image
      shown faintly behind the stamp text, with adjustable opacity - similar
      to Adobe's own default signature appearance.
 
    Every signed invoice shows this stamp on page 1, not just an invisible
-   cryptographic signature. Cyrillic text in the stamp requires a
+   cryptographic signature. The stamp (text, wrapping, sizing, watermark)
+   is rendered as one image via Pillow and embedded in the PDF, rather than
+   using pyHanko's native text layout - with an embedded Cyrillic font,
+   that layer was found to add erratic extra spacing between glyphs
+   (reproduced identically in two independent PDF renderers, so it was a
+   real content bug, not a viewer quirk). Cyrillic rendering still needs a
    Cyrillic-capable font already on the machine (Tahoma/Arial, which both
-   Windows and macOS ship by default) - `app/signer.py`'s `find_stamp_font()`
-   locates one automatically; if none is found, Cyrillic text would render
-   incorrectly (garbled), though this shouldn't happen on a normal
-   Windows or macOS install.
+   Windows and macOS ship by default) - `find_stamp_font()` locates one
+   automatically.
 3. **Потпишување и испраќање (Run)** tab: scans the unsigned-invoices
    folder and matches each file to a customer. Signing and sending are two
    separate, independent steps - not one combined action:
@@ -119,7 +127,7 @@ token/Gmail using a throwaway PKCS12 test certificate - see the signing
 flow tested during development. The full GUI has also been smoke-tested
 (headless and live) on macOS.
 
-`app/signer.py`'s PKCS#11 path (`pkcs11_signing_session`,
-`list_pkcs11_certificates`) can only be verified against the real token -
-that's the one part that needs testing on-site, on whichever machine (Windows
-or macOS) actually has the token plugged in.
+`app/signer.py`'s PKCS#11 path (`pkcs11_signing_session`, `list_pkcs11_tokens`)
+can only be verified against the real token - that's the one part that needs
+testing on-site, on whichever machine (Windows or macOS) actually has the
+token plugged in.

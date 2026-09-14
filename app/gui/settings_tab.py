@@ -33,7 +33,7 @@ from app.config import (
 from app.gui.responsive import make_scrollable
 from app.gui.signature_position import SignaturePositionPicker
 from app.matcher import FilenamePattern
-from app.signer import SigningError, list_pkcs11_certificates
+from app.signer import list_pkcs11_tokens
 
 EXAMPLE_FILENAME = "Inv_08_0004_01_2026.pdf"
 
@@ -116,15 +116,17 @@ class SettingsTab(QWidget):
         self.token_group = QGroupBox(S.SET_TOKEN_GROUP)
         token_form = QFormLayout(self.token_group)
         self.driver_edit = QLineEdit(config.pkcs11_driver_path)
-        self.slot_edit = QLineEdit(config.pkcs11_slot)
         token_form.addRow(
             S.SET_TOKEN_DRIVER,
             _wrap(_browse_row(self.driver_edit, is_dir=False, file_filter=DRIVER_FILE_FILTER)),
         )
-        token_form.addRow(S.SET_TOKEN_SLOT, self.slot_edit)
-        list_certs_btn = QPushButton(S.SET_TOKEN_LIST_CERTS)
-        list_certs_btn.clicked.connect(self._list_certs)
-        token_form.addRow("", list_certs_btn)
+
+        self.token_combo = QComboBox()
+        self._set_token_combo_placeholder(config.pkcs11_slot, config.pkcs11_cert_label)
+        token_form.addRow(S.SET_TOKEN_SELECT, self.token_combo)
+        scan_tokens_btn = QPushButton(S.SET_TOKEN_SCAN)
+        scan_tokens_btn.clicked.connect(self._scan_tokens)
+        token_form.addRow("", scan_tokens_btn)
         outer.addWidget(self.token_group)
 
         # -- test certificate (PKCS12) --
@@ -259,19 +261,35 @@ class SettingsTab(QWidget):
         extracted = pattern.extract_id(EXAMPLE_FILENAME) or "?"
         self.example_label.setText(S.SET_FILENAME_EXAMPLE.format(example=EXAMPLE_FILENAME, extracted=extracted))
 
-    def _list_certs(self) -> None:
+    def _set_token_combo_placeholder(self, slot: str, cert_label: str) -> None:
+        self.token_combo.clear()
+        self.token_combo.addItem(S.SET_TOKEN_AUTO, userData=(None, ""))
+        if slot.strip():
+            slot_no = int(slot) if slot.strip().isdigit() else None
+            label = f"Слот {slot}" + (f" — {cert_label}" if cert_label else "")
+            self.token_combo.addItem(label, userData=(slot_no, cert_label))
+            self.token_combo.setCurrentIndex(1)
+
+    def _scan_tokens(self) -> None:
         driver = self.driver_edit.text().strip()
         if not driver:
+            QMessageBox.warning(self, S.ERROR_TITLE, S.RUN_ERROR_NO_DRIVER)
             return
         try:
-            labels = list_pkcs11_certificates(Path(driver))
-        except SigningError as exc:
-            QMessageBox.critical(self, S.ERROR_TITLE, str(exc))
-            return
+            tokens = list_pkcs11_tokens(Path(driver))
         except Exception as exc:
-            QMessageBox.critical(self, S.ERROR_TITLE, str(exc))
+            QMessageBox.critical(self, S.ERROR_TITLE, S.SET_TOKEN_SCAN_ERROR.format(error=exc))
             return
-        QMessageBox.information(self, S.SET_TOKEN_LIST_CERTS, "\n".join(labels) or "—")
+
+        self.token_combo.clear()
+        self.token_combo.addItem(S.SET_TOKEN_AUTO, userData=(None, ""))
+        if not tokens:
+            QMessageBox.information(self, S.SET_TOKEN_SCAN, S.SET_TOKEN_NONE_FOUND)
+            return
+        for info in tokens:
+            cert_label = info.cert_labels[0] if len(info.cert_labels) == 1 else ""
+            self.token_combo.addItem(info.display_name, userData=(info.slot_id, cert_label))
+        self.token_combo.setCurrentIndex(1)
 
     def _save(self) -> None:
         self.config.unsigned_dir = self.unsigned_edit.text().strip()
@@ -280,7 +298,9 @@ class SettingsTab(QWidget):
         self.config.filename_id_position = self.id_position_spin.value()
         self.config.signing_mode = self.mode_combo.currentData()
         self.config.pkcs11_driver_path = self.driver_edit.text().strip()
-        self.config.pkcs11_slot = self.slot_edit.text().strip()
+        slot_no, cert_label = self.token_combo.currentData() or (None, "")
+        self.config.pkcs11_slot = str(slot_no) if slot_no is not None else ""
+        self.config.pkcs11_cert_label = cert_label
         self.config.pkcs12_path = self.pkcs12_path_edit.text().strip()
         self.config.gmail_address = self.gmail_edit.text().strip()
         self.config.email_subject = self.subject_edit.text()
