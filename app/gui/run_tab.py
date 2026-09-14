@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import strings as S
-from app.config import AppConfig, get_gmail_app_password
+from app.config import AppConfig, get_gmail_app_password, get_pkcs12_password
 from app.customers import CustomerStore
 from app.gui.batch_worker import SendBatchWorker, SignBatchWorker
 from app.mailer import EmailTemplate, SmtpCredentials
@@ -138,7 +138,11 @@ class RunTab(QWidget):
     # -- sign step -----------------------------------------------------
 
     def _start_sign(self) -> None:
-        if not self.config.pkcs11_driver_path:
+        is_pkcs12 = self.config.signing_mode == "pkcs12"
+        if is_pkcs12 and not self.config.pkcs12_path:
+            QMessageBox.warning(self, S.ERROR_TITLE, S.RUN_ERROR_NO_PKCS12)
+            return
+        if not is_pkcs12 and not self.config.pkcs11_driver_path:
             QMessageBox.warning(self, S.ERROR_TITLE, S.RUN_ERROR_NO_DRIVER)
             return
 
@@ -153,28 +157,46 @@ class RunTab(QWidget):
         if confirm != QMessageBox.StandardButton.Yes:
             return
 
-        pin, ok = QInputDialog.getText(
-            self, S.RUN_PIN_TITLE, S.RUN_PIN_LABEL, QLineEdit.EchoMode.Password
-        )
-        if not ok or not pin:
-            return
-
-        slot_no = int(self.config.pkcs11_slot) if self.config.pkcs11_slot.strip().isdigit() else None
         sig_options = SignatureOptions(
             reason=self.config.signature_reason, location=self.config.signature_location
         )
-
         self._tracked_job_ids = {id(j) for j in pending}
         self._begin_progress(len(pending))
-        self.worker = SignBatchWorker(
-            jobs=self.jobs,
-            driver_path=Path(self.config.pkcs11_driver_path),
-            pin=pin,
-            slot_no=slot_no,
-            signed_dir=Path(self.config.signed_dir),
-            run_log=self.run_log,
-            sig_options=sig_options,
-        )
+
+        if is_pkcs12:
+            password, ok = QInputDialog.getText(
+                self, S.RUN_PKCS12_PASSWORD_TITLE, S.RUN_PKCS12_PASSWORD_LABEL, QLineEdit.EchoMode.Password,
+                get_pkcs12_password(self.config.pkcs12_path) or "",
+            )
+            if not ok:
+                return
+            self.worker = SignBatchWorker(
+                jobs=self.jobs,
+                signed_dir=Path(self.config.signed_dir),
+                run_log=self.run_log,
+                sig_options=sig_options,
+                mode="pkcs12",
+                pkcs12_path=Path(self.config.pkcs12_path),
+                pkcs12_password=password,
+            )
+        else:
+            pin, ok = QInputDialog.getText(
+                self, S.RUN_PIN_TITLE, S.RUN_PIN_LABEL, QLineEdit.EchoMode.Password
+            )
+            if not ok or not pin:
+                return
+            slot_no = int(self.config.pkcs11_slot) if self.config.pkcs11_slot.strip().isdigit() else None
+            self.worker = SignBatchWorker(
+                jobs=self.jobs,
+                signed_dir=Path(self.config.signed_dir),
+                run_log=self.run_log,
+                sig_options=sig_options,
+                mode="pkcs11",
+                driver_path=Path(self.config.pkcs11_driver_path),
+                pin=pin,
+                slot_no=slot_no,
+            )
+
         self.worker.job_updated.connect(self._on_job_updated)
         self.worker.finished_batch.connect(self._on_sign_finished)
         self.worker.failed.connect(self._on_failed)

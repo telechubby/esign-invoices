@@ -26,8 +26,13 @@ class AppConfig:
     filename_separator: str = "_"
     filename_id_position: int = 3  # 1-based
 
+    signing_mode: str = "pkcs11"  # "pkcs11" (real token) or "pkcs12" (test certificate)
+
     pkcs11_driver_path: str = ""
     pkcs11_slot: str = ""  # blank = auto-detect
+
+    pkcs12_path: str = ""  # only used when signing_mode == "pkcs12", for trying the
+    # app out before the real token is available - never use for real invoices.
 
     gmail_address: str = ""
     email_subject: str = "Фактура {invoice_id}"
@@ -77,3 +82,13 @@ def get_gmail_app_password(gmail_address: str) -> str | None:
 
 def set_gmail_app_password(gmail_address: str, app_password: str) -> None:
     keyring.set_password(KEYRING_SERVICE, gmail_address, app_password)
+
+
+def get_pkcs12_password(pkcs12_path: str) -> str | None:
+    if not pkcs12_path:
+        return None
+    return keyring.get_password(KEYRING_SERVICE, f"pkcs12:{pkcs12_path}")
+
+
+def set_pkcs12_password(pkcs12_path: str, password: str) -> None:
+    keyring.set_password(KEYRING_SERVICE, f"pkcs12:{pkcs12_path}", password)

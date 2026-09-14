@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtWidgets import (
+    QComboBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -19,7 +20,14 @@ from PySide6.QtWidgets import (
 )
 
 from app import strings as S
-from app.config import AppConfig, get_gmail_app_password, save_config, set_gmail_app_password
+from app.config import (
+    AppConfig,
+    get_gmail_app_password,
+    get_pkcs12_password,
+    save_config,
+    set_gmail_app_password,
+    set_pkcs12_password,
+)
 from app.matcher import FilenamePattern
 from app.signer import SigningError, list_pkcs11_certificates
 
@@ -31,6 +39,8 @@ elif sys.platform == "darwin":
     DRIVER_FILE_FILTER = "PKCS#11 driver (*.dylib *.so)"
 else:
     DRIVER_FILE_FILTER = "PKCS#11 driver (*.so)"
+
+PKCS12_FILE_FILTER = "PKCS12 (*.p12 *.pfx)"
 
 
 def _browse_row(line_edit: QLineEdit, is_dir: bool = True, file_filter: str = "") -> QHBoxLayout:
@@ -86,9 +96,20 @@ class SettingsTab(QWidget):
         self._update_example()
         outer.addWidget(pattern_group)
 
-        # -- token --
-        token_group = QGroupBox(S.SET_TOKEN_GROUP)
-        token_form = QFormLayout(token_group)
+        # -- signing mode --
+        mode_group = QGroupBox(S.SET_SIGNING_MODE_GROUP)
+        mode_form = QFormLayout(mode_group)
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem(S.SET_SIGNING_MODE_PKCS11, userData="pkcs11")
+        self.mode_combo.addItem(S.SET_SIGNING_MODE_PKCS12, userData="pkcs12")
+        self.mode_combo.setCurrentIndex(1 if config.signing_mode == "pkcs12" else 0)
+        self.mode_combo.currentIndexChanged.connect(self._update_mode_visibility)
+        mode_form.addRow(S.SET_SIGNING_MODE_LABEL, self.mode_combo)
+        outer.addWidget(mode_group)
+
+        # -- token (PKCS#11, real token) --
+        self.token_group = QGroupBox(S.SET_TOKEN_GROUP)
+        token_form = QFormLayout(self.token_group)
         self.driver_edit = QLineEdit(config.pkcs11_driver_path)
         self.slot_edit = QLineEdit(config.pkcs11_slot)
         token_form.addRow(
@@ -99,7 +120,25 @@ class SettingsTab(QWidget):
         list_certs_btn = QPushButton(S.SET_TOKEN_LIST_CERTS)
         list_certs_btn.clicked.connect(self._list_certs)
         token_form.addRow("", list_certs_btn)
-        outer.addWidget(token_group)
+        outer.addWidget(self.token_group)
+
+        # -- test certificate (PKCS12) --
+        self.pkcs12_group = QGroupBox(S.SET_SIGNING_MODE_PKCS12)
+        pkcs12_form = QFormLayout(self.pkcs12_group)
+        self.pkcs12_path_edit = QLineEdit(config.pkcs12_path)
+        self.pkcs12_password_edit = QLineEdit(get_pkcs12_password(config.pkcs12_path) or "")
+        self.pkcs12_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        pkcs12_form.addRow(
+            S.SET_PKCS12_PATH,
+            _wrap(_browse_row(self.pkcs12_path_edit, is_dir=False, file_filter=PKCS12_FILE_FILTER)),
+        )
+        pkcs12_form.addRow(S.SET_PKCS12_PASSWORD, self.pkcs12_password_edit)
+        warning_label = QLabel(S.SET_SIGNING_MODE_WARNING)
+        warning_label.setWordWrap(True)
+        pkcs12_form.addRow("", warning_label)
+        outer.addWidget(self.pkcs12_group)
+
+        self._update_mode_visibility()
 
         # -- email --
         email_group = QGroupBox(S.SET_EMAIL_GROUP)
@@ -122,6 +161,11 @@ class SettingsTab(QWidget):
         save_btn.clicked.connect(self._save)
         outer.addWidget(save_btn)
         outer.addStretch(1)
+
+    def _update_mode_visibility(self) -> None:
+        is_pkcs12 = self.mode_combo.currentData() == "pkcs12"
+        self.token_group.setVisible(not is_pkcs12)
+        self.pkcs12_group.setVisible(is_pkcs12)
 
     def _update_example(self) -> None:
         pattern = FilenamePattern(
@@ -150,8 +194,10 @@ class SettingsTab(QWidget):
         self.config.signed_dir = self.signed_edit.text().strip()
         self.config.filename_separator = self.separator_edit.text() or "_"
         self.config.filename_id_position = self.id_position_spin.value()
+        self.config.signing_mode = self.mode_combo.currentData()
         self.config.pkcs11_driver_path = self.driver_edit.text().strip()
         self.config.pkcs11_slot = self.slot_edit.text().strip()
+        self.config.pkcs12_path = self.pkcs12_path_edit.text().strip()
         self.config.gmail_address = self.gmail_edit.text().strip()
         self.config.email_subject = self.subject_edit.text()
         self.config.email_body = self.body_edit.toPlainText()
@@ -159,6 +205,8 @@ class SettingsTab(QWidget):
         save_config(self.config)
         if self.config.gmail_address and self.app_password_edit.text():
             set_gmail_app_password(self.config.gmail_address, self.app_password_edit.text())
+        if self.config.pkcs12_path and self.pkcs12_password_edit.text():
+            set_pkcs12_password(self.config.pkcs12_path, self.pkcs12_password_edit.text())
 
         QMessageBox.information(self, S.SET_SAVE, S.SET_SAVED)
         if self.on_saved:
