@@ -14,10 +14,12 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
 from app import strings as S
 from app.customers import CustomerStore, ImportPreview
+from app.gui.responsive import make_scrollable, screen_fit_size
 
 
 class ImportDialog(QDialog):
@@ -27,9 +29,12 @@ class ImportDialog(QDialog):
         self.preview: ImportPreview | None = None
         self.csv_path: str | None = None
         self.setWindowTitle(S.IMPORT_TITLE)
-        self.resize(700, 500)
+        w, h = screen_fit_size(700, 500)
+        self.resize(w, h)
 
-        layout = QVBoxLayout(self)
+        outer_layout = QVBoxLayout(self)
+        body = QWidget()
+        layout = QVBoxLayout(body)
 
         file_row = QHBoxLayout()
         self.file_label = QLabel("—")
@@ -61,6 +66,7 @@ class ImportDialog(QDialog):
         layout.addWidget(QLabel(S.IMPORT_NEW))
         self.new_table = QTableWidget(0, 3)
         self.new_table.setHorizontalHeaderLabels([S.CUST_TABLE_ID, S.CUST_TABLE_EMAIL, S.CUST_TABLE_NAME])
+        self.new_table.setMaximumHeight(220)
         layout.addWidget(self.new_table)
 
         layout.addWidget(QLabel(S.IMPORT_CONFLICTS))
@@ -68,7 +74,10 @@ class ImportDialog(QDialog):
         self.conflict_table.setHorizontalHeaderLabels(
             ["ID", S.CUST_TABLE_EMAIL + " (стара)", S.CUST_TABLE_EMAIL + " (нова)", "Резолуција"]
         )
+        self.conflict_table.setMaximumHeight(220)
         layout.addWidget(self.conflict_table)
+
+        outer_layout.addWidget(make_scrollable(body), stretch=1)
 
         btn_row = QHBoxLayout()
         apply_btn = QPushButton(S.IMPORT_APPLY)
@@ -77,7 +86,7 @@ class ImportDialog(QDialog):
         cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(apply_btn)
         btn_row.addWidget(cancel_btn)
-        layout.addLayout(btn_row)
+        outer_layout.addLayout(btn_row)
 
     def _choose_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, S.IMPORT_CHOOSE_FILE, "", "CSV (*.csv)")

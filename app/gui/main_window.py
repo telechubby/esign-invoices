@@ -6,6 +6,7 @@ from app import strings as S
 from app.config import AppConfig
 from app.customers import CustomerStore
 from app.gui.customers_tab import CustomersTab
+from app.gui.responsive import screen_fit_size
 from app.gui.run_tab import RunTab
 from app.gui.settings_tab import SettingsTab
 from app.runlog import RunLog
@@ -15,7 +16,8 @@ class MainWindow(QMainWindow):
     def __init__(self, config: AppConfig, customers: CustomerStore, run_log: RunLog):
         super().__init__()
         self.setWindowTitle(S.APP_TITLE)
-        self.resize(1000, 700)
+        w, h = screen_fit_size(1000, 700)
+        self.resize(w, h)
 
         self.config = config
         self.customers = customers

@@ -30,6 +30,7 @@ from app.config import (
     set_gmail_app_password,
     set_pkcs12_password,
 )
+from app.gui.responsive import make_scrollable
 from app.gui.signature_position import SignaturePositionPicker
 from app.matcher import FilenamePattern
 from app.signer import SigningError, list_pkcs11_certificates
@@ -70,7 +71,8 @@ class SettingsTab(QWidget):
         self.config = config
         self.on_saved = on_saved
 
-        outer = QVBoxLayout(self)
+        content = QWidget()
+        outer = QVBoxLayout(content)
 
         # -- paths --
         paths_group = QGroupBox(S.SET_PATHS_GROUP)
@@ -198,6 +200,10 @@ class SettingsTab(QWidget):
         save_btn.clicked.connect(self._save)
         outer.addWidget(save_btn)
         outer.addStretch(1)
+
+        tab_layout = QVBoxLayout(self)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+        tab_layout.addWidget(make_scrollable(content))
 
     def _on_picker_changed(self) -> None:
         for spin, value in (
