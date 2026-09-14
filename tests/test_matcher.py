@@ -45,6 +45,21 @@ def test_scan_invoices_matches_known_customer(store: CustomerStore, tmp_path: Pa
     assert not by_id["9999"].matched
 
 
+def test_scan_invoices_matches_plain_id_against_padded_filename(store: CustomerStore, tmp_path: Path):
+    # Real-world case: CSV export has plain IDs ("4"), filenames are
+    # zero-padded ("Inv_08_0004_01_2026.pdf").
+    store.upsert("4", "client@example.com", "Client DOO")
+    folder = tmp_path / "unsigned"
+    folder.mkdir()
+    (folder / "Inv_08_0004_01_2026.pdf").write_bytes(b"%PDF-1.4 fake")
+
+    pattern = FilenamePattern(separator="_", id_position=3)
+    results = scan_invoices(folder, pattern, store)
+
+    assert results[0].matched
+    assert results[0].customer.email == "client@example.com"
+
+
 def test_scan_invoices_ignores_non_pdf(store: CustomerStore, tmp_path: Path):
     folder = tmp_path / "unsigned"
     folder.mkdir()

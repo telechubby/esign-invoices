@@ -21,6 +21,22 @@ def write_csv(path: Path, rows: list[dict]) -> None:
         writer.writerows(rows)
 
 
+def test_zero_padded_and_plain_id_resolve_to_same_customer(store: CustomerStore):
+    # Invoice filenames are commonly zero-padded ("0004") while an
+    # accounting/ERP CSV export has the same ID plain ("4") - both must
+    # resolve to the same customer record.
+    store.upsert("4", "client@example.com", "Client DOO")
+    assert store.get("0004") is not None
+    assert store.get("0004").email == "client@example.com"
+    assert store.get("4").email == "client@example.com"
+
+
+def test_upsert_with_padded_id_then_lookup_plain(store: CustomerStore):
+    store.upsert("0004", "client@example.com", "Client DOO")
+    assert store.get("4") is not None
+    assert store.get("4").email == "client@example.com"
+
+
 def test_upsert_and_get(store: CustomerStore):
     store.upsert("0004", "client@example.com", "Client DOO")
     c = store.get("0004")

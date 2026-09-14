@@ -12,6 +12,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+def normalize_customer_id(raw: str) -> str:
+    """Canonicalizes a company ID so zero-padded and plain forms match.
+
+    Invoice filenames tend to be zero-padded (e.g. "0004"), while an
+    accounting/ERP CSV export commonly has the same ID as a plain number
+    (e.g. "4"). Stripping leading zeros makes both resolve to the same
+    stored key, so signing invoices from customers imported that way
+    doesn't depend on padding matching exactly.
+    """
+    raw = raw.strip()
+    stripped = raw.lstrip("0")
+    return stripped or "0"
+
+
 @dataclass
 class Customer:
     id: str
@@ -69,11 +83,12 @@ class CustomerStore:
     def get(self, customer_id: str) -> Customer | None:
         row = self._conn.execute(
             "SELECT id, email, name, updated_at FROM customers WHERE id = ?",
-            (customer_id,),
+            (normalize_customer_id(customer_id),),
         ).fetchone()
         return Customer(**dict(row)) if row else None
 
     def upsert(self, customer_id: str, email: str, name: str = "") -> None:
+        customer_id = normalize_customer_id(customer_id)
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self._conn.execute(
             """
@@ -87,6 +102,7 @@ class CustomerStore:
         self._conn.commit()
 
     def delete(self, customer_id: str) -> None:
+        customer_id = normalize_customer_id(customer_id)
         self._conn.execute("DELETE FROM customers WHERE id = ?", (customer_id,))
         self._conn.commit()
 
