@@ -5,8 +5,10 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -28,6 +30,7 @@ from app.config import (
     set_gmail_app_password,
     set_pkcs12_password,
 )
+from app.gui.signature_position import SignaturePositionPicker
 from app.matcher import FilenamePattern
 from app.signer import SigningError, list_pkcs11_certificates
 
@@ -140,6 +143,40 @@ class SettingsTab(QWidget):
 
         self._update_mode_visibility()
 
+        # -- visible signature appearance --
+        appearance_group = QGroupBox(S.SET_SIGNATURE_APPEARANCE_GROUP)
+        appearance_layout = QVBoxLayout(appearance_group)
+        hint_label = QLabel(S.SET_SIGNATURE_APPEARANCE_HINT)
+        hint_label.setWordWrap(True)
+        appearance_layout.addWidget(hint_label)
+
+        appearance_row = QHBoxLayout()
+        self.sig_picker = SignaturePositionPicker(
+            config.sig_x_pct, config.sig_y_pct, config.sig_width_pct, config.sig_height_pct
+        )
+        appearance_row.addWidget(self.sig_picker, stretch=1)
+
+        sig_grid = QGridLayout()
+        self.sig_x_spin = _pct_spin(config.sig_x_pct)
+        self.sig_y_spin = _pct_spin(config.sig_y_pct)
+        self.sig_width_spin = _pct_spin(config.sig_width_pct)
+        self.sig_height_spin = _pct_spin(config.sig_height_pct)
+        sig_grid.addWidget(QLabel(S.SET_SIG_X), 0, 0)
+        sig_grid.addWidget(self.sig_x_spin, 0, 1)
+        sig_grid.addWidget(QLabel(S.SET_SIG_Y), 1, 0)
+        sig_grid.addWidget(self.sig_y_spin, 1, 1)
+        sig_grid.addWidget(QLabel(S.SET_SIG_WIDTH), 2, 0)
+        sig_grid.addWidget(self.sig_width_spin, 2, 1)
+        sig_grid.addWidget(QLabel(S.SET_SIG_HEIGHT), 3, 0)
+        sig_grid.addWidget(self.sig_height_spin, 3, 1)
+        appearance_row.addLayout(sig_grid)
+        appearance_layout.addLayout(appearance_row)
+        outer.addWidget(appearance_group)
+
+        self.sig_picker.changed.connect(self._on_picker_changed)
+        for spin in (self.sig_x_spin, self.sig_y_spin, self.sig_width_spin, self.sig_height_spin):
+            spin.valueChanged.connect(self._on_spin_changed)
+
         # -- email --
         email_group = QGroupBox(S.SET_EMAIL_GROUP)
         email_form = QFormLayout(email_group)
@@ -161,6 +198,25 @@ class SettingsTab(QWidget):
         save_btn.clicked.connect(self._save)
         outer.addWidget(save_btn)
         outer.addStretch(1)
+
+    def _on_picker_changed(self) -> None:
+        for spin, value in (
+            (self.sig_x_spin, self.sig_picker.x_pct),
+            (self.sig_y_spin, self.sig_picker.y_pct),
+            (self.sig_width_spin, self.sig_picker.width_pct),
+            (self.sig_height_spin, self.sig_picker.height_pct),
+        ):
+            spin.blockSignals(True)
+            spin.setValue(value)
+            spin.blockSignals(False)
+
+    def _on_spin_changed(self) -> None:
+        self.sig_picker.set_values(
+            self.sig_x_spin.value(),
+            self.sig_y_spin.value(),
+            self.sig_width_spin.value(),
+            self.sig_height_spin.value(),
+        )
 
     def _update_mode_visibility(self) -> None:
         is_pkcs12 = self.mode_combo.currentData() == "pkcs12"
@@ -201,6 +257,10 @@ class SettingsTab(QWidget):
         self.config.gmail_address = self.gmail_edit.text().strip()
         self.config.email_subject = self.subject_edit.text()
         self.config.email_body = self.body_edit.toPlainText()
+        self.config.sig_x_pct = self.sig_x_spin.value()
+        self.config.sig_y_pct = self.sig_y_spin.value()
+        self.config.sig_width_pct = self.sig_width_spin.value()
+        self.config.sig_height_pct = self.sig_height_spin.value()
 
         save_config(self.config)
         if self.config.gmail_address and self.app_password_edit.text():
@@ -217,3 +277,12 @@ def _wrap(layout: QHBoxLayout) -> QWidget:
     w = QWidget()
     w.setLayout(layout)
     return w
+
+
+def _pct_spin(value: float) -> QDoubleSpinBox:
+    spin = QDoubleSpinBox()
+    spin.setRange(0.0, 100.0)
+    spin.setDecimals(1)
+    spin.setSuffix(" %")
+    spin.setValue(value)
+    return spin

@@ -70,6 +70,17 @@ SET_EMAIL_APP_PASSWORD = "Лозинка за апликација (App Password
 SET_EMAIL_SUBJECT = "Наслов на порака"
 SET_EMAIL_BODY = "Текст на порака"
 SET_EMAIL_PLACEHOLDERS_HINT = "Може да користите: {invoice_id}, {customer_name}, {month}, {year}"
+SET_SIGNATURE_APPEARANCE_GROUP = "Изглед на видливиот потпис (прва страница)"
+SET_SIGNATURE_APPEARANCE_HINT = (
+    "Повлечете го жолтото поле за да го поместите потписот, или повлечете го "
+    "аголот долу-десно за да ја промените големината. Бројките се проценти "
+    "од страницата."
+)
+SET_SIG_X = "Позиција X (%)"
+SET_SIG_Y = "Позиција Y (%, од дното)"
+SET_SIG_WIDTH = "Ширина (%)"
+SET_SIG_HEIGHT = "Висина (%)"
+
 SET_SAVE = "Зачувај поставки"
 SET_SAVED = "Поставките се зачувани."
 

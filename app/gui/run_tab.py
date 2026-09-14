@@ -158,7 +158,12 @@ class RunTab(QWidget):
             return
 
         sig_options = SignatureOptions(
-            reason=self.config.signature_reason, location=self.config.signature_location
+            reason=self.config.signature_reason,
+            location=self.config.signature_location,
+            x_pct=self.config.sig_x_pct,
+            y_pct=self.config.sig_y_pct,
+            width_pct=self.config.sig_width_pct,
+            height_pct=self.config.sig_height_pct,
         )
         self._tracked_job_ids = {id(j) for j in pending}
         self._begin_progress(len(pending))

@@ -45,6 +45,15 @@ class AppConfig:
     signature_reason: str = ""
     signature_location: str = ""
 
+    # Visible signature stamp position/size on the first page, as % of
+    # page width/height (y measured from the bottom, PDF convention).
+    # Defaults are a modest box in the bottom-right - adjust in Settings
+    # to fit your actual invoice layout.
+    sig_x_pct: float = 70.0
+    sig_y_pct: float = 3.0
+    sig_width_pct: float = 25.0
+    sig_height_pct: float = 8.0
+
     def to_json_dict(self) -> dict:
         return asdict(self)
 

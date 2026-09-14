@@ -18,9 +18,10 @@ from typing import Iterator
 
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.sign import PdfSignatureMetadata, signers
-from pyhanko.sign.fields import SigSeedSubFilter
+from pyhanko.sign.fields import SigFieldSpec, SigSeedSubFilter
 from pyhanko.sign.pkcs11 import PKCS11SignatureConfig, PKCS11SigningContext
 from pyhanko.sign.signers.pdf_cms import Signer
+from pyhanko.stamp import TextStampStyle
 
 
 class SigningError(Exception):
@@ -33,6 +34,30 @@ class SignatureOptions:
     location: str = ""
     field_name: str = "Signature1"
 
+    # Where the visible signature stamp goes on the first page, as
+    # percentages of the page's width/height (PDF convention: y measured
+    # from the BOTTOM of the page). Percentages are used rather than
+    # absolute points because they work regardless of the actual page
+    # size, which can vary between invoices.
+    x_pct: float = 65.0
+    y_pct: float = 5.0
+    width_pct: float = 30.0
+    height_pct: float = 12.0
+
+
+def compute_signature_box(
+    page_width: float,
+    page_height: float,
+    options: SignatureOptions,
+) -> tuple[float, float, float, float]:
+    """Converts the configured percentage-based position/size into an
+    absolute (x1, y1, x2, y2) box in PDF points for this page's size."""
+    x1 = options.x_pct / 100 * page_width
+    y1 = options.y_pct / 100 * page_height
+    x2 = x1 + options.width_pct / 100 * page_width
+    y2 = y1 + options.height_pct / 100 * page_height
+    return x1, y1, x2, y2
+
 
 def sign_pdf(
     input_path: Path,
@@ -40,16 +65,13 @@ def sign_pdf(
     signer: Signer,
     options: SignatureOptions | None = None,
 ) -> None:
-    """Sign a single PDF with an already-constructed pyHanko Signer."""
+    """Sign a single PDF with an already-constructed pyHanko Signer.
+
+    The signature is always made visible on the first page, at the
+    position/size configured in `options` - so someone opening the PDF sees
+    a signature stamp, not just an invisible cryptographic signature.
+    """
     options = options or SignatureOptions()
-    meta = PdfSignatureMetadata(
-        field_name=options.field_name,
-        reason=options.reason or None,
-        location=options.location or None,
-        subfilter=SigSeedSubFilter.PADES,
-        md_algorithm="sha256",
-    )
-    pdf_signer = signers.PdfSigner(meta, signer=signer)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -58,6 +80,25 @@ def sign_pdf(
             # reporting tools) often use hybrid cross-reference sections,
             # which pyHanko's strict mode refuses to sign.
             writer = IncrementalPdfFileWriter(inf, strict=False)
+
+            first_page = writer.root["/Pages"]["/Kids"][0].get_object()
+            px0, py0, px1, py1 = (float(v) for v in first_page["/MediaBox"])
+            box = compute_signature_box(px1 - px0, py1 - py0, options)
+
+            meta = PdfSignatureMetadata(
+                field_name=options.field_name,
+                reason=options.reason or None,
+                location=options.location or None,
+                subfilter=SigSeedSubFilter.PADES,
+                md_algorithm="sha256",
+            )
+            pdf_signer = signers.PdfSigner(
+                meta,
+                signer=signer,
+                stamp_style=TextStampStyle(background=None),
+                new_field_spec=SigFieldSpec(options.field_name, on_page=0, box=box),
+            )
+
             with open(output_path, "wb") as outf:
                 pdf_signer.sign_pdf(writer, output=outf)
     except Exception as exc:  # pyHanko raises various exception types

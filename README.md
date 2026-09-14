@@ -14,7 +14,12 @@ Windows and macOS (same codebase).
    listed separately before you commit the import.
 2. **Поставки (Settings)** tab: folders, the invoice filename pattern (which
    part of the filename is the customer ID), the USB token's PKCS#11 driver
-   path, and the Gmail sending address/App Password.
+   path, the Gmail sending address/App Password, and where the visible
+   signature stamp goes on the first page - drag the box on the mini page
+   preview (or type exact percentages), since where there's free space
+   varies by invoice template. Every signed invoice shows this stamp
+   (signer name + timestamp) on page 1, not just an invisible cryptographic
+   signature.
 3. **Потпишување и испраќање (Run)** tab: scans the unsigned-invoices
    folder and matches each file to a customer. Signing and sending are two
    separate, independent steps - not one combined action:
