@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -23,6 +24,13 @@ from app.matcher import FilenamePattern
 from app.signer import SigningError, list_pkcs11_certificates
 
 EXAMPLE_FILENAME = "Inv_08_0004_01_2026.pdf"
+
+if sys.platform == "win32":
+    DRIVER_FILE_FILTER = "PKCS#11 driver (*.dll)"
+elif sys.platform == "darwin":
+    DRIVER_FILE_FILTER = "PKCS#11 driver (*.dylib *.so)"
+else:
+    DRIVER_FILE_FILTER = "PKCS#11 driver (*.so)"
 
 
 def _browse_row(line_edit: QLineEdit, is_dir: bool = True, file_filter: str = "") -> QHBoxLayout:
@@ -85,7 +93,7 @@ class SettingsTab(QWidget):
         self.slot_edit = QLineEdit(config.pkcs11_slot)
         token_form.addRow(
             S.SET_TOKEN_DRIVER,
-            _wrap(_browse_row(self.driver_edit, is_dir=False, file_filter="Driver (*.dll)")),
+            _wrap(_browse_row(self.driver_edit, is_dir=False, file_filter=DRIVER_FILE_FILTER)),
         )
         token_form.addRow(S.SET_TOKEN_SLOT, self.slot_edit)
         list_certs_btn = QPushButton(S.SET_TOKEN_LIST_CERTS)

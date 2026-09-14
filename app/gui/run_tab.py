@@ -3,6 +3,8 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -21,7 +23,7 @@ from PySide6.QtWidgets import (
 from app import strings as S
 from app.config import AppConfig, get_gmail_app_password
 from app.customers import CustomerStore
-from app.gui.batch_worker import BatchWorker
+from app.gui.batch_worker import SendBatchWorker, SignBatchWorker
 from app.mailer import EmailTemplate, SmtpCredentials
 from app.matcher import FilenamePattern
 from app.pipeline import BatchReport, InvoiceJob, Status, build_jobs
@@ -48,22 +50,33 @@ class RunTab(QWidget):
         self.customers = customers
         self.run_log = run_log
         self.jobs: list[InvoiceJob] = []
-        self.worker: BatchWorker | None = None
+        self.worker: SignBatchWorker | SendBatchWorker | None = None
 
         layout = QVBoxLayout(self)
 
         btn_row = QHBoxLayout()
         self.scan_btn = QPushButton(S.RUN_SCAN)
         self.scan_btn.clicked.connect(self._scan)
-        self.start_btn = QPushButton(S.RUN_START)
-        self.start_btn.clicked.connect(self._start)
+        self.sign_btn = QPushButton(S.RUN_SIGN)
+        self.sign_btn.clicked.connect(self._start_sign)
+        self.open_folder_btn = QPushButton(S.RUN_OPEN_SIGNED_FOLDER)
+        self.open_folder_btn.clicked.connect(self._open_signed_folder)
+        self.send_btn = QPushButton(S.RUN_SEND)
+        self.send_btn.clicked.connect(self._start_send)
         self.cancel_btn = QPushButton(S.RUN_CANCEL)
         self.cancel_btn.clicked.connect(self._cancel)
         self.cancel_btn.setEnabled(False)
         self.export_btn = QPushButton(S.RUN_EXPORT_REPORT)
         self.export_btn.clicked.connect(self._export_report)
         self.export_btn.setEnabled(False)
-        for b in (self.scan_btn, self.start_btn, self.cancel_btn, self.export_btn):
+        for b in (
+            self.scan_btn,
+            self.sign_btn,
+            self.open_folder_btn,
+            self.send_btn,
+            self.cancel_btn,
+            self.export_btn,
+        ):
             btn_row.addWidget(b)
         layout.addLayout(btn_row)
 
@@ -89,11 +102,12 @@ class RunTab(QWidget):
 
     def _scan(self) -> None:
         unsigned_dir = Path(self.config.unsigned_dir)
+        signed_dir = Path(self.config.signed_dir)
         if not unsigned_dir.exists():
             QMessageBox.critical(self, S.ERROR_TITLE, S.RUN_ERROR_FOLDER_MISSING.format(path=unsigned_dir))
             return
 
-        self.jobs = build_jobs(unsigned_dir, self._pattern(), self.customers, self.run_log)
+        self.jobs = build_jobs(unsigned_dir, signed_dir, self._pattern(), self.customers, self.run_log)
         self.table.setRowCount(len(self.jobs))
         for row_idx, job in enumerate(self.jobs):
             self._render_row(row_idx, job)
@@ -116,22 +130,25 @@ class RunTab(QWidget):
                 return i
         return None
 
-    def _start(self) -> None:
+    def _open_signed_folder(self) -> None:
+        signed_dir = Path(self.config.signed_dir)
+        signed_dir.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(signed_dir)))
+
+    # -- sign step -----------------------------------------------------
+
+    def _start_sign(self) -> None:
         if not self.config.pkcs11_driver_path:
             QMessageBox.warning(self, S.ERROR_TITLE, S.RUN_ERROR_NO_DRIVER)
-            return
-        app_password = get_gmail_app_password(self.config.gmail_address)
-        if not self.config.gmail_address or not app_password:
-            QMessageBox.warning(self, S.ERROR_TITLE, S.RUN_ERROR_NO_CREDS)
             return
 
         pending = [j for j in self.jobs if j.status == Status.PENDING]
         if not pending:
-            QMessageBox.information(self, S.RUN_START, S.RUN_ERROR_NO_PENDING)
+            QMessageBox.information(self, S.RUN_SIGN, S.RUN_ERROR_NO_PENDING)
             return
 
         confirm = QMessageBox.question(
-            self, S.RUN_CONFIRM_TITLE, S.RUN_CONFIRM_MSG.format(count=len(pending))
+            self, S.RUN_CONFIRM_TITLE, S.RUN_CONFIRM_SIGN_MSG.format(count=len(pending))
         )
         if confirm != QMessageBox.StandardButton.Yes:
             return
@@ -143,62 +160,113 @@ class RunTab(QWidget):
             return
 
         slot_no = int(self.config.pkcs11_slot) if self.config.pkcs11_slot.strip().isdigit() else None
-        template = EmailTemplate(subject=self.config.email_subject, body=self.config.email_body)
-        creds = SmtpCredentials(address=self.config.gmail_address, app_password=app_password)
         sig_options = SignatureOptions(
             reason=self.config.signature_reason, location=self.config.signature_location
         )
 
-        self.progress.setMinimum(0)
-        self.progress.setMaximum(len(pending))
-        self.progress.setValue(0)
-        self._done_count = 0
-
-        self.worker = BatchWorker(
+        self._tracked_job_ids = {id(j) for j in pending}
+        self._begin_progress(len(pending))
+        self.worker = SignBatchWorker(
             jobs=self.jobs,
             driver_path=Path(self.config.pkcs11_driver_path),
             pin=pin,
             slot_no=slot_no,
             signed_dir=Path(self.config.signed_dir),
             run_log=self.run_log,
-            mail_creds=creds,
-            template=template,
             sig_options=sig_options,
         )
         self.worker.job_updated.connect(self._on_job_updated)
-        self.worker.finished_batch.connect(self._on_finished)
+        self.worker.finished_batch.connect(self._on_sign_finished)
         self.worker.failed.connect(self._on_failed)
-
-        self.start_btn.setEnabled(False)
-        self.scan_btn.setEnabled(False)
-        self.cancel_btn.setEnabled(True)
+        self._set_buttons_running(True)
         self.worker.start()
+
+    def _on_sign_finished(self, report: BatchReport) -> None:
+        self.summary_label.setText(
+            S.RUN_SIGN_SUMMARY.format(
+                ok=report.signed_count, failed=report.failed_count, no_match=report.no_match_count
+            )
+        )
+        self._set_buttons_running(False)
+        self.export_btn.setEnabled(True)
+        self.worker = None
+
+    # -- send step -----------------------------------------------------
+
+    def _start_send(self) -> None:
+        app_password = get_gmail_app_password(self.config.gmail_address)
+        if not self.config.gmail_address or not app_password:
+            QMessageBox.warning(self, S.ERROR_TITLE, S.RUN_ERROR_NO_CREDS)
+            return
+
+        signed = [j for j in self.jobs if j.status == Status.SIGNED]
+        if not signed:
+            QMessageBox.information(self, S.RUN_SEND, S.RUN_ERROR_NO_SIGNED)
+            return
+
+        confirm = QMessageBox.question(
+            self, S.RUN_CONFIRM_TITLE, S.RUN_CONFIRM_SEND_MSG.format(count=len(signed))
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        template = EmailTemplate(subject=self.config.email_subject, body=self.config.email_body)
+        creds = SmtpCredentials(address=self.config.gmail_address, app_password=app_password)
+
+        self._tracked_job_ids = {id(j) for j in signed}
+        self._begin_progress(len(signed))
+        self.worker = SendBatchWorker(
+            jobs=self.jobs,
+            run_log=self.run_log,
+            mail_creds=creds,
+            template=template,
+        )
+        self.worker.job_updated.connect(self._on_job_updated)
+        self.worker.finished_batch.connect(self._on_send_finished)
+        self.worker.failed.connect(self._on_failed)
+        self._set_buttons_running(True)
+        self.worker.start()
+
+    def _on_send_finished(self, report: BatchReport) -> None:
+        self.summary_label.setText(
+            S.RUN_SEND_SUMMARY.format(ok=report.sent_count, failed=report.failed_count)
+        )
+        self._set_buttons_running(False)
+        self.export_btn.setEnabled(True)
+        self.worker = None
+
+    # -- shared ---------------------------------------------------------
+
+    def _begin_progress(self, total: int) -> None:
+        self.progress.setMinimum(0)
+        self.progress.setMaximum(total)
+        self.progress.setValue(0)
+        self._done_count = 0
+        if not hasattr(self, "_tracked_job_ids"):
+            self._tracked_job_ids: set[int] = set()
+
+    def _set_buttons_running(self, running: bool) -> None:
+        self.scan_btn.setEnabled(not running)
+        self.sign_btn.setEnabled(not running)
+        self.send_btn.setEnabled(not running)
+        self.cancel_btn.setEnabled(running)
 
     def _on_job_updated(self, job: InvoiceJob) -> None:
         row_idx = self._job_row_index(job)
         if row_idx is not None:
             self._render_row(row_idx, job)
-        if job.status in (Status.SENT, Status.SIGN_FAILED, Status.SEND_FAILED):
+        if id(job) in self._tracked_job_ids and job.status in (
+            Status.SENT,
+            Status.SIGNED,
+            Status.SIGN_FAILED,
+            Status.SEND_FAILED,
+        ):
             self._done_count += 1
-            self.progress.setValue(self._done_count)
-
-    def _on_finished(self, report: BatchReport) -> None:
-        self.summary_label.setText(
-            S.RUN_SUMMARY.format(
-                ok=report.sent_count, failed=report.failed_count, no_match=report.no_match_count
-            )
-        )
-        self.start_btn.setEnabled(True)
-        self.scan_btn.setEnabled(True)
-        self.cancel_btn.setEnabled(False)
-        self.export_btn.setEnabled(True)
-        self.worker = None
+            self.progress.setValue(min(self._done_count, self.progress.maximum()))
 
     def _on_failed(self, message: str) -> None:
         QMessageBox.critical(self, S.ERROR_TITLE, S.RUN_ERROR_BATCH.format(error=message))
-        self.start_btn.setEnabled(True)
-        self.scan_btn.setEnabled(True)
-        self.cancel_btn.setEnabled(False)
+        self._set_buttons_running(False)
         self.worker = None
 
     def _cancel(self) -> None:
